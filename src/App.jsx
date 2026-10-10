@@ -4,6 +4,8 @@ import World from './World.jsx'
 import Player from './Player.jsx'
 import Minimap from './Minimap.jsx'
 import TouchControls from './TouchControls.jsx'
+import ChatPanel from './ChatPanel.jsx'
+import { CHAT_PROFS, chat, typing, useChat } from './chatStore.js'
 import { EYE, SPAWN } from './layout.js'
 
 export default function App() {
@@ -25,10 +27,41 @@ export default function App() {
   }
   const playing = locked || touchOn
   useEffect(() => {
-    const k = (e) => e.code === 'KeyM' && setShowMap((v) => !v)
+    const k = (e) => e.code === 'KeyM' && !typing(e) && setShowMap((v) => !v)
     window.addEventListener('keydown', k)
     return () => window.removeEventListener('keydown', k)
   }, [])
+
+  // chat with a professor: walk up, look at them, then click (or press E)
+  const { near, open } = useChat()
+  const canChat = playing && near && !open
+  const openChat = useCallback(() => {
+    const { near, open } = chat.get()
+    if (!near || open) return
+    chat.set({ open: near })
+    document.exitPointerLock?.() // frees the mouse for the chat window
+  }, [])
+  const closeChat = useCallback(() => {
+    chat.set({ open: null })
+    if (!touchRef.current.active) lockRef.current?.() // back to walking
+  }, [])
+  useEffect(() => {
+    if (!open) return
+    const esc = (e) => e.key === 'Escape' && closeChat()
+    window.addEventListener('keydown', esc)
+    return () => window.removeEventListener('keydown', esc)
+  }, [open, closeChat])
+  useEffect(() => {
+    if (!canChat) return
+    const key = (e) => e.code === 'KeyE' && openChat()
+    const click = () => document.pointerLockElement && openChat()
+    window.addEventListener('keydown', key)
+    window.addEventListener('mousedown', click)
+    return () => {
+      window.removeEventListener('keydown', key)
+      window.removeEventListener('mousedown', click)
+    }
+  }, [canChat, openChat])
 
   return (
     <>
@@ -50,10 +83,16 @@ export default function App() {
       <button className="maptoggle" onClick={() => setShowMap((s) => !s)}>
         {showMap ? 'hide map' : 'map'}
       </button>
-      {playing && <div className="crosshair" />}
-      {touchOn && <TouchControls touchRef={touchRef} onPause={() => setTouch(false)} />}
+      {playing && !open && <div className="crosshair" />}
+      {canChat && (
+        <button className="chatprompt" onClick={openChat}>
+          {touchOn ? 'Tap here' : 'Click or press E'} to chat with <b>{CHAT_PROFS[near].name}</b>
+        </button>
+      )}
+      {open && <ChatPanel slug={open} onClose={closeChat} />}
+      {touchOn && !open && <TouchControls touchRef={touchRef} onPause={() => setTouch(false)} />}
 
-      {!playing && (
+      {!playing && !open && (
         <div className="overlay" onClick={() => (isTouch ? setTouch(true) : lockRef.current?.())}>
           <div className="card">
             <div className="kicker">Yale SOM · Evans Hall</div>
